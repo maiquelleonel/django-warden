@@ -128,29 +128,10 @@ If you detect that `django-ai-boost` or `codebase-memory-mcp` tools are missing 
    `codebase-memory-mcp config set auto_index true`
 3. **Offer the exact command to spin up the visual UI** on port `9749` when they ask to visualize or explore the codebase graph:
    `codebase-memory-mcp --ui=true --port=9749`
-4. **Propose creating or updating their local `.gemini/settings.json` file** in their project root. Show them the exact JSON configuration, dynamically substituting `DJANGO_SETTINGS_MODULE` with their project's settings module (e.g., dynamically detected as `gpurent.settings` or `tests.settings` from the environment).
-   *Example configuration:*
-   ```json
-   {
-     "mcpServers": {
-       "django-ai-boost": {
-         "command": "uv",
-         "args": ["run", "django-ai-boost"],
-         "env": {
-           "DJANGO_SETTINGS_MODULE": "<detected_settings_module>"
-         }
-       },
-       "codebase-memory-mcp": {
-         "command": "codebase-memory-mcp",
-         "args": [],
-         "env": {
-           "NODE_ENV": "production"
-         }
-       }
-     }
-   }
-   ```
-5. **Ask for explicit consent** before writing or updating `.gemini/settings.json` or running indexing configurations for them.
+4. **Propose creating or updating their editor-specific configuration file** in their project root. Show them the exact JSON configuration, dynamically substituting DJANGO_SETTINGS_MODULE with their project's settings module (e.g., dynamically detected as gpurent.settings or tests.settings from the environment).
+   - **For Zed (.zed/settings.json):** Use context_servers (NEVER mcpServers).
+   - **For Gemini / Claude / Cursor (.gemini/settings.json, .claude/settings.json, .cursor/mcp.json):** Use mcpServers.
+5. **Ask for explicit consent** before writing or updating any settings file or 
 
 When operating in an environment equipped with these MCP servers, you must use them to **empirically validate** assumptions rather than guessing:
 
