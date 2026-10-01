@@ -49,6 +49,56 @@ python manage.py warden_audit
 
 ✨ **Zero-Config AI Setup:** Running `warden_audit` (or starting the development server with `DEBUG = True`) automatically provisions the Warden Skill (`SKILL.md`) and configures the Model Context Protocol (MCP) integrations in both `.gemini/` and `.claude/` directories. On your next session with Gemini CLI, Claude Code, or compatible AI agents, the skill and tools will be immediately active and ready to enforce "The Django Way"!
 
+## Companion Django skills
+
+The package also distributes six focused guides, with their supporting references:
+
+- `django-backend`: app ownership, validation, queries, transactions and workflows.
+- `django-templates`: DTL, shared UI, Admin overrides, accessible forms and Tailwind.
+- `django-htmx`: full-page/fragment contracts, forms, swaps, events and history.
+- `alpinejs-django`: local UI state, lifecycle, CSP and keyboard/focus behavior.
+- `django-web-security`: authorization, CSRF, XSS, CSP, uploads and private caching.
+- `django-testing`: focused Django tests, transaction evidence and browser verification.
+
+Their maintained source is `django_warden/skills/`, included in both wheel and
+source distributions. Bootstrap copies Markdown literally, including Django/HTML
+examples and license notices. Django 6 features in the guides are version-gated;
+installing the catalog does not add HTMX, Alpine, Tailwind or a task backend.
+
+The catalog uses the existing assistant-directory discovery. Existing hidden
+directories containing `skills/` are detected, including `.agents/` and `.codex/`;
+directories with `settings.json` are also detected, potentially including `.vscode/`.
+An empty project still defaults to `.gemini/` and `.claude/`. Shared skill symlinks
+inside the project are preserved and their resolved destination is processed once.
+Companion files resolving outside the project are skipped with a warning.
+Assistant activation and MCP configuration compatibility depend on the client;
+this extension does not change the existing settings-generation behavior.
+
+After upgrading the package, run `python manage.py warden_audit` (or use the normal
+DEBUG bootstrap) to refresh the catalog. An unchanged managed file is updated
+using its recorded hash in `<skill>/.django-warden.json`. Repeated runs leave
+identical bytes and modification times intact. If a same-named skill has different
+unmanaged content, a local edit, or an invalid ownership manifest, the whole
+companion skill is preserved and a warning identifies the conflict. Other skills
+continue to install. This protection applies to the new companions; the existing
+core `django-warden/SKILL.md` keeps its established overwrite behavior.
+
+Keep project policy in a separate local skill and the repository's active
+instructions. Before adopting a companion over an existing custom copy, review
+the differences, retain local rules in that separate skill, and move the old
+directory to a backup outside the discovered skill folders. Bootstrap then creates
+a managed copy. Identical existing package files can be adopted automatically.
+Extra local files and files removed from a later package are not deleted; review
+obsolete references manually during upgrades. Their previous hashes remain recorded
+so a later release can safely reintroduce an unchanged file. Missing files still in
+the package are restored. Files are replaced atomically; a failed write is logged
+and bootstrap can be retried after resolving the error. The entire multi-file
+upgrade is not a transaction. Replacement preserves existing file permissions;
+new public package documentation uses mode 0644 on POSIX systems.
+
+Each adapted skill retains its attribution and full license notice in
+`references/upstream-license.md`.
+
 ## 🤖 Global Installation (Optional)
 
 If you want the skill available globally across all your projects on your machine (without installing the package in each one), you can copy or download `SKILL.md` directly into your global agent folder:

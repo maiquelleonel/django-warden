@@ -3,6 +3,8 @@ import os
 
 from django.template import Context, Engine
 
+from django_warden.skill_distribution import install_companion_skills
+
 
 def get_template_content(template_name: str) -> str:
     """
@@ -160,4 +162,5 @@ def ensure_ai_structure(base_dir: str, context: dict) -> tuple[list[str], bool, 
         if _merge_or_create_settings(target_path, new_settings):
             any_settings_created = True
 
+    any_skill_created |= install_companion_skills(base_dir, targets)
     return targets, any_skill_created, any_settings_created

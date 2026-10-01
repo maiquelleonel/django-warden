@@ -35,16 +35,16 @@ You must act as a collaborative, highly-skilled peer-programming Staff Engineer:
 - **No Hidden Queries in Properties:** Avoid database queries (e.g., `filter()`, `count()`) inside `@property` methods on Models, as they trigger silent, unoptimized DB queries during serialization.
   - *Warden Action:* Annotate the necessary data onto the queryset before serialization, or use prefetch/aggregation.
 - **Use `update_fields` on Save:** When saving updates to an existing model instance, avoid updating the entire row.
-  - *Warden Action:* Always pass the `update_fields` argument to `.save()` (e.g., `instance.save(update_fields=["status"])`) to prevent race conditions and optimize DB writes.
+  - *Warden Action:* Pass `update_fields` for intended partial writes (e.g., `instance.save(update_fields=["status"])`). It limits written columns; it does not prevent lost updates. Choose `F()` expressions, constraints or locking for the actual concurrency case.
 
 ### 2. 🎛️ Input Validation & Serializers
 - **No Manual Dict Parsing:** Never manually parse input payloads or write custom `if "field" not in data:` validations inside Views, Admins, or Services.
   - *Warden Action:* All structural validation, payload sanitization, and type checking must reside inside DRF `Serializers` or Django `Forms`.
-- **Safe Persistence:** Never execute `.save()` on a serializer or view without explicitly invoking and validating `is_valid(raise_exception=True)`.
+- **Safe Persistence:** Validate bound input before persistence: Django Forms use `form.is_valid()` with no `raise_exception` argument; DRF Serializers support `serializer.is_valid(raise_exception=True)`.
 
 ### 3. 🚨 Signal Windmills & Efeitos Colaterais (The Infinite Loop Trap)
 - **Windmill Loop Prevention:** Connecting a `post_save` or `pre_save` signal that saves the same object instance recursively is strictly forbidden.
-  - *Warden Action:* Ensure every signal receiver that invokes `.save()` contains an explicit escape clause (e.g., checking `created`, matching a field value condition, or passing a specific `update_fields` argument to prevent recursion) or uses `@prevent_windmill_loops`.
+  - *Warden Action:* Ensure a receiver saving the same object has an actual escape condition or uses `@prevent_windmill_loops`. Passing `update_fields` alone is not a guard: the receiver must inspect it and return when appropriate.
 
 ### 4. 🔒 Production Security & Zero-Trust (Anti-Exploit Rules)
 - **No Hardcoded Secrets:** Never embed API keys, passwords, credentials, or development URLs in python files or prompts.
@@ -60,7 +60,7 @@ You must act as a collaborative, highly-skilled peer-programming Staff Engineer:
 - **SQL & Order Injection Guard:** Never concatenate strings or format f-strings inside `RawSQL`, `.raw()`, or dynamic `.order_by()`.
   - *Warden Action:* Deprecate and avoid `.extra()`. Use parameterized query parameter binding (`params=[...]`), and validate dynamic sort fields against a strict allowlist.
 - **Safe Uploads & Deserialization:** Prohibit `pickle` deserialization on untrusted data streams; prevent Path Traversal/Zip Slip in uploads.
-  - *Warden Action:* Ban `pickle.loads()`/`pickle.load()` on external inputs (use `json` or `django.core.signing`). In file uploads, always sanitize file paths with `os.path.basename()` or use Django's `FileSystemStorage` / `upload_to`.
+  - *Warden Action:* Ban `pickle.loads()`/`pickle.load()` on external inputs (use `json` or `django.core.signing`). Use Django storage with controlled paths and validate content, size and authorized serving. `os.path.basename()` alone is not sufficient upload or path-traversal protection.
 
 ### 5. 🗺️ Thin Views & Lean Models (Anti-God Object Rule)
 - **Thin Views / Thin Admins:** Keep `views.py` and `admin.py` strictly thin, focused solely on data exposure and presentation.
@@ -98,10 +98,10 @@ If these packages are already available or requested by the user, configure and 
 ### 10. ⚠️ Silent but Dangerous Errors (Reliability & Observability)
 - **Specific Exception Handling:** Never use empty `except:` or catch `Exception` broadly without logging or re-raising.
   - *Warden Action:* Always catch specific exceptions (e.g. `ObjectDoesNotExist`, `RequestException`) and log them with appropriate context (`logger.exception`).
-- **Validate Bulk Updates/Deletes:** Operations like `.update()` and `.delete()` skip model saves and signals and fail silently if no records match.
+- **Validate Bulk Updates/Deletes:** `QuerySet.update()` skips instance `save()` and save signals. `QuerySet.delete()` skips overridden instance `delete()` but emits `pre_delete`/`post_delete` and handles cascades.
   - *Warden Action:* Check the return count of updates/deletes. If an update expected to modify exactly 1 row fails (`updated != 1`), raise a domain exception or log a warning.
-- **Synchronous Signals Danger:** Signals are synchronous. If they fail, they will roll back the current database transaction.
-  - *Warden Action:* Prefer explicit service calls over signals for side effects, or ensure signal receivers are heavily guarded and catch/log all exceptions internally.
+- **Synchronous Signals Danger:** A synchronous signal failure propagates to its caller. Rollback depends on the transaction boundary; already committed writes are not undone.
+  - *Warden Action:* Prefer explicit workflows for side effects. Guard receivers against recursion and slow external calls; only catch failures the contract explicitly allows, with logging. Do not hide all exceptions.
 
 ### 11. 🧩 SOLID, Clean Code, & Anti-Overengineering (The Django Way)
 When applying theoretical principles like SOLID, DRY, YAGNI, or Clean Code, translate them into concrete Django-native patterns rather than introducing overengineered layers:
@@ -110,7 +110,7 @@ When applying theoretical principles like SOLID, DRY, YAGNI, or Clean Code, tran
 - **No Manual DTOs (YAGNI / SOLID):** Do not build custom data transfer object (DTO) classes for input payloads.
   - *Warden Action:* Use Django `Forms` or DRF `Serializers` (or Pydantic schemas in Django Ninja) for input validation, sanitization, and data mapping.
 - **Single Responsibility (SOLID - S) via Services:** Avoid turning models into God Objects that handle external integrations (emails, payments, webhooks).
-  - *Warden Action:* Use standalone **Service Functions** (Domain Services) in `services.py` to orchestrate multi-step business actions and side effects, leaving the Model lean and focused on data rules.
+  - *Warden Action:* Follow the boundary above: use `orchestrators/` (or the established workflow module) for multi-step local business actions; reserve `services/` for external protocol clients.
 - **Don't Fight the Framework (Clean Code):** Leverage Django's built-in batteries (e.g., CBVs, built-in validation, Django System Checks, and authentication backends) instead of writing custom, proprietary layers from scratch.
 
 ---
@@ -170,7 +170,7 @@ When operating in an environment equipped with these MCP servers, you must use t
 Before writing or modifying any Django code, run this checklist mentally or explicitly:
 
 1. **Query Audit:** Is my query doing an N+1? Do I need `select_related` or `prefetch_related`? Are there hidden queries inside Model Properties?
-2. **Logic Audit:** Is this logic leaking into a View? Should it be a method on the Model (FatModel) or a task in `tasks.py`?
+2. **Logic Audit:** Is this logic leaking into a View? Does it belong to a model invariant, a workflow, or a background task under the project's contract?
 3. **Signal Audit:** Does this signal have an explicit exit clause to prevent infinite loops?
 4. **Validation Audit:** Am I validating raw dictionaries manually? Should I create a serializer?
 5. **Background Audit:** Is this view doing a heavy third-party request synchronously without a timeout? Should it be a background task delayed via `transaction.on_commit`?
