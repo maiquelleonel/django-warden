@@ -63,9 +63,13 @@ For Django 6 tasks, use the immediate backend only for focused execution checks:
 ```python
 from django.test import override_settings
 
-with override_settings(TASKS={"default": {
-    "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
-}}):
+with override_settings(
+    TASKS={
+        "default": {
+            "BACKEND": "django.tasks.backends.immediate.ImmediateBackend",
+        }
+    }
+):
     # Enqueue a task and assert its immediate effects.
     pass
 ```

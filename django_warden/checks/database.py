@@ -4,6 +4,33 @@ from django.apps import apps
 from django.core.checks import Tags, Warning, register
 
 
+def _is_field_indexed(model, field) -> bool:
+    """
+    Checks if a field is indexed directly, uniquely constrained, or covered as
+    the leading column of an index/constraint defined in model Meta.
+    """
+    if field.db_index or field.unique or field.primary_key:
+        return True
+
+    # Check Meta.indexes (standalone index or leading column of composite index)
+    for index in getattr(model._meta, "indexes", []):
+        if index.fields and index.fields[0] == field.name:
+            return True
+
+    # Check Meta.constraints (UniqueConstraint)
+    for constraint in getattr(model._meta, "constraints", []):
+        fields = getattr(constraint, "fields", None)
+        if fields and fields[0] == field.name:
+            return True
+
+    # Check Meta.unique_together
+    for ut in getattr(model._meta, "unique_together", []):
+        if ut and ut[0] == field.name:
+            return True
+
+    return False
+
+
 @register(Tags.database)
 def check_search_fields_indexing(app_configs, **kwargs):
     """
@@ -31,7 +58,7 @@ def check_search_fields_indexing(app_configs, **kwargs):
             name_lower = field.name.lower()
             # If the field name contains any target search terms, ensure it is indexed or unique
             if any(term in name_lower for term in target_field_names):
-                if not field.db_index and not field.unique:
+                if not _is_field_indexed(model, field):
                     warnings.append(
                         Warning(
                             (

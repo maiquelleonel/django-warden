@@ -4,16 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-warden"
-version = "0.3.2"
+version = "0.4.0"
 description = "Architectural watchdog, custom system checks, and AI safety guardrails for Django projects."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [
-    { name = "Maiquel", email = "maiquel@example.com" }
+    { name = "Maiquel", email = "maiquel@maiquelleonel.com.br" }
 ]
 dependencies = [
-    "Django>=4.2",
+    "Django>=6.0",
+    "django-ai-boost>=0.9.0",
+    "ruff>=0.16.3",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +29,7 @@ packages = ["django_warden"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "C90"]

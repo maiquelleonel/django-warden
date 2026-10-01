@@ -25,9 +25,7 @@ from django.test import Client
 
 client = Client(enforce_csrf_checks=True)
 client.force_login(self.user)
-response = client.post(
-    edit_url, {"title": "Changed"}, headers={"HX-Request": "true"}
-)
+response = client.post(edit_url, {"title": "Changed"}, headers={"HX-Request": "true"})
 self.assertEqual(response.status_code, 403)
 ```
 

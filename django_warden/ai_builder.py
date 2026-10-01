@@ -5,6 +5,9 @@ from django.template import Context, Engine
 
 from django_warden.skill_distribution import install_companion_skills
 
+KNOWN_AI_DIRECTORIES = [".gemini", ".claude", ".cursor", ".zed"]
+DEFAULT_AI_DIRECTORIES = [".gemini", ".claude"]
+
 
 def get_template_content(template_name: str) -> str:
     """
@@ -23,25 +26,19 @@ def get_template_content(template_name: str) -> str:
         return f.read()
 
 
-KNOWN_AI_DIRECTORIES = [".gemini", ".claude"]
-DEFAULT_AI_DIRECTORIES = [".gemini", ".claude"]
-
-
 def _get_target_directories(base_dir: str, create_defaults_if_empty: bool = True) -> list[str]:
     """
-    Determines all active target directories for AI instructions and MCP settings.
-    Scans base_dir for any known AI assistant directory or any hidden directory
-    containing a 'skills' subfolder or 'settings.json' file.
+    Discovers AI assistant directories in base_dir.
+    Looks for standard AI folders (.gemini, .claude, .cursor, .zed) or any hidden
+    folder containing a 'skills' subfolder or 'settings.json'.
     """
     base_dir = str(base_dir)
     detected = set()
 
-    # 1. Check for presence of known AI assistant directories
     for directory_name in KNOWN_AI_DIRECTORIES:
         if os.path.isdir(os.path.join(base_dir, directory_name)):
             detected.add(directory_name)
 
-    # 2. Dynamically discover any other hidden directory with a 'skills' folder or 'settings.json'
     try:
         if os.path.exists(base_dir):
             for entry in os.listdir(base_dir):
@@ -49,118 +46,138 @@ def _get_target_directories(base_dir: str, create_defaults_if_empty: bool = True
                 if os.path.isdir(entry_path) and entry.startswith("."):
                     skills_path = os.path.join(entry_path, "skills")
                     settings_file = os.path.join(entry_path, "settings.json")
-                    if os.path.isdir(skills_path) or os.path.exists(settings_file):
+                    if os.path.isdir(skills_path) or os.path.isfile(settings_file):
                         detected.add(entry)
     except OSError:
         pass
 
-    # If no AI folder was found, optionally provision the default primary assistants
     if not detected and create_defaults_if_empty:
         detected.update(DEFAULT_AI_DIRECTORIES)
 
     return sorted(detected)
 
 
-def _write_skill_file(target_path: str, rendered_skill: str) -> bool:
+def _write_skill_file(target_path: str, skill_content: str) -> bool:
     """
-    Writes the SKILL.md file to target_path/skills/django-warden/SKILL.md.
-    Returns True if a new file was created.
+    Creates or updates the SKILL.md file inside the target directory.
     """
-    if not rendered_skill:
-        return False
+    skills_dir = os.path.join(target_path, "skills", "django-warden")
+    os.makedirs(skills_dir, exist_ok=True)
+    skill_file = os.path.join(skills_dir, "SKILL.md")
 
-    skill_dir = os.path.join(target_path, "skills", "django-warden")
-    os.makedirs(skill_dir, exist_ok=True)
-    skill_file_path = os.path.join(skill_dir, "SKILL.md")
-    skill_existed = os.path.exists(skill_file_path)
+    created = not os.path.exists(skill_file)
+    with open(skill_file, "w", encoding="utf-8") as f:
+        f.write(skill_content)
+    return created
+
+
+def _is_zed_directory(target_path: str) -> bool:
+    """Returns True if the target path is a Zed configuration folder."""
+    return os.path.basename(os.path.normpath(target_path)) == ".zed"
+
+
+def _merge_existing_settings(existing_data: dict, new_data: dict, is_zed: bool = False) -> dict:
+    """
+    Merges MCP configuration into existing settings preserving unrelated keys.
+    Uses 'context_servers' for Zed and 'mcpServers' for all other editors.
+    """
+    merged = dict(existing_data)
+    key = "context_servers" if is_zed else "mcpServers"
+    raw_incoming = new_data.get("mcpServers", new_data.get("context_servers", {}))
+
+    if is_zed:
+        incoming_servers = {}
+        for server_name, server_cfg in raw_incoming.items():
+            if isinstance(server_cfg, dict):
+                zed_cfg = dict(server_cfg)
+                if zed_cfg.get("command") == "django-ai-boost":
+                    zed_cfg["command"] = "uv"
+                    zed_cfg["args"] = ["run", "django-ai-boost"] + zed_cfg.get("args", [])
+                incoming_servers[server_name] = zed_cfg
+            else:
+                incoming_servers[server_name] = server_cfg
+    else:
+        incoming_servers = raw_incoming
+
+    current_servers = merged.get(key, {})
+    if not isinstance(current_servers, dict):
+        current_servers = {}
+
+    current_servers.update(incoming_servers)
+    merged[key] = current_servers
+
+    if is_zed and "mcpServers" in merged:
+        del merged["mcpServers"]
+
+    return merged
+
+
+def _merge_or_create_settings(target_path: str, settings_content: str) -> bool:
+    """
+    Creates or merges the settings.json file inside the target directory.
+    """
+    os.makedirs(target_path, exist_ok=True)
+    settings_file = os.path.join(target_path, "settings.json")
+    is_zed = _is_zed_directory(target_path)
 
     try:
-        with open(skill_file_path, "w", encoding="utf-8") as f:
-            f.write(rendered_skill)
-        return not skill_existed
-    except Exception:
-        return False
+        new_data = json.loads(settings_content) if isinstance(settings_content, str) else settings_content
+        if not isinstance(new_data, dict):
+            new_data = {}
+    except (json.JSONDecodeError, TypeError):
+        new_data = {}
 
-
-def _merge_or_create_settings(target_path: str, new_settings: dict) -> bool:
-    """
-    Merges or creates settings.json under target_path/settings.json.
-    Returns True if a new settings file was created.
-    """
-    if new_settings is None:
-        return False
-
-    settings_file_path = os.path.join(target_path, "settings.json")
-    settings_existed = os.path.exists(settings_file_path)
+    if not os.path.exists(settings_file):
+        final_data = _merge_existing_settings({}, new_data, is_zed=is_zed)
+        with open(settings_file, "w", encoding="utf-8") as f:
+            json.dump(final_data, f, indent=2)
+            f.write("\n")
+        return True
 
     try:
-        if settings_existed:
-            _merge_existing_settings(settings_file_path, new_settings)
-            return False
-        else:
-            os.makedirs(os.path.dirname(settings_file_path), exist_ok=True)
-            with open(settings_file_path, "w", encoding="utf-8") as f:
-                json.dump(new_settings, f, indent=2)
-            return True
-    except Exception:
-        return False
+        with open(settings_file, "r", encoding="utf-8") as f:
+            existing_data = json.load(f)
+            if not isinstance(existing_data, dict):
+                existing_data = {}
+    except (json.JSONDecodeError, OSError):
+        existing_data = {}
+
+    merged_data = _merge_existing_settings(existing_data, new_data, is_zed=is_zed)
+
+    with open(settings_file, "w", encoding="utf-8") as f:
+        json.dump(merged_data, f, indent=2)
+        f.write("\n")
+
+    return False
 
 
-def _merge_existing_settings(settings_file_path: str, new_settings: dict):
+def ensure_ai_structure(base_dir: str, context_data: dict) -> tuple[list[str], bool, bool]:
     """
-    Safely merges new_settings into an existing settings.json file.
+    Discovers AI assistant directories and ensures they have the latest
+    SKILL.md, companion skills, and settings.json configurations.
     """
-    with open(settings_file_path, "r", encoding="utf-8") as f:
-        try:
-            existing_settings = json.load(f)
-            if not isinstance(existing_settings, dict):
-                existing_settings = {}
-        except json.JSONDecodeError:
-            existing_settings = {}
+    skill_tpl = get_template_content("SKILL.md.tpl")
+    settings_tpl = get_template_content("settings.json.tpl")
 
-    existing_mcp = existing_settings.setdefault("mcpServers", {})
-    if isinstance(existing_mcp, dict) and "mcpServers" in new_settings:
-        existing_mcp.update(new_settings["mcpServers"])
+    engine = Engine()
+    ctx = Context(context_data)
+    rendered_skill = engine.from_string(skill_tpl).render(ctx)
+    rendered_settings = engine.from_string(settings_tpl).render(ctx)
 
-    with open(settings_file_path, "w", encoding="utf-8") as f:
-        json.dump(existing_settings, f, indent=2)
-
-
-def ensure_ai_structure(base_dir: str, context: dict) -> tuple[list[str], bool, bool]:
-    """
-    Ensures that the directory structure and AI instruction files are set up.
-    Can write to multiple directories (e.g., both .gemini and .claude if they exist).
-    Returns (targets_processed, any_skill_created, any_settings_created).
-    """
     targets = _get_target_directories(base_dir)
-    any_skill_created = False
-    any_settings_created = False
+    skill_created_any = False
+    settings_created_any = False
 
-    # Render skill template
-    try:
-        skill_template = get_template_content("SKILL.md.tpl")
-        engine = Engine()
-        template = engine.from_string(skill_template)
-        rendered_skill = template.render(Context(context))
-    except Exception:
-        rendered_skill = ""
+    for target in targets:
+        target_path = os.path.join(base_dir, target)
+        skill_created = _write_skill_file(target_path, rendered_skill)
+        if skill_created:
+            skill_created_any = True
 
-    # Render settings template
-    try:
-        json_template = get_template_content("settings.json.tpl")
-        engine = Engine()
-        template_json = engine.from_string(json_template)
-        rendered_json_str = template_json.render(Context(context))
-        new_settings = json.loads(rendered_json_str)
-    except Exception:
-        new_settings = None
+        settings_created = _merge_or_create_settings(target_path, rendered_settings)
+        if settings_created:
+            settings_created_any = True
 
-    for target_dir in targets:
-        target_path = os.path.join(base_dir, target_dir)
-        if _write_skill_file(target_path, rendered_skill):
-            any_skill_created = True
-        if _merge_or_create_settings(target_path, new_settings):
-            any_settings_created = True
+    skill_created_any |= install_companion_skills(base_dir, targets)
 
-    any_skill_created |= install_companion_skills(base_dir, targets)
-    return targets, any_skill_created, any_settings_created
+    return targets, skill_created_any, settings_created_any

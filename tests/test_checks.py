@@ -24,6 +24,22 @@ class SafeIndexedModel(models.Model):
         app_label = "django_warden"
 
 
+class MetaIndexedModel(models.Model):
+    contact_email = models.CharField(max_length=255)
+
+    class Meta:
+        app_label = "django_warden"
+        indexes = [models.Index(fields=["contact_email"], name="idx_contact_email")]
+
+
+class ConstraintIndexedModel(models.Model):
+    user_uuid = models.CharField(max_length=255)
+
+    class Meta:
+        app_label = "django_warden"
+        constraints = [models.UniqueConstraint(fields=["user_uuid"], name="uniq_user_uuid")]
+
+
 class GodModel(models.Model):
     class Meta:
         app_label = "django_warden"
@@ -43,6 +59,10 @@ class TestDatabaseChecks(TestCase):
         self.assertTrue(len(warnings) >= 1)
         self.assertIn("contact_email", warnings[0].msg)
         self.assertIn("UnindexedModel", warnings[0].msg)
+
+        # Ensure Meta.indexes and Meta.constraints models do NOT trigger warnings
+        meta_warnings = [e for e in warnings if "MetaIndexedModel" in e.msg or "ConstraintIndexedModel" in e.msg]
+        self.assertEqual(len(meta_warnings), 0)
 
 
 class TestSignalChecks(TestCase):
