@@ -13,7 +13,7 @@ authors = [
     { name = "Maiquel", email = "maiquel@maiquelleonel.com.br" }
 ]
 dependencies = [
-    "Django>=4.2",
+    "Django>=6.0",
     "django-ai-boost>=0.9.0",
     "ruff>=0.16.3",
 ]
@@ -29,7 +29,7 @@ packages = ["django_warden"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "C90"]
