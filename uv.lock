@@ -330,10 +330,12 @@ wheels = [
 
 [[package]]
 name = "django-warden"
-version = "0.3.2"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
+    { name = "django-ai-boost" },
+    { name = "ruff" },
 ]
 
 [package.optional-dependencies]
@@ -345,7 +347,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=4.2" },
+    { name = "django-ai-boost", specifier = ">=0.9.0" },
     { name = "django-ai-boost", marker = "extra == 'dev'", specifier = ">=0.8.0" },
+    { name = "ruff", specifier = ">=0.16.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
 ]
 provides-extras = ["dev"]

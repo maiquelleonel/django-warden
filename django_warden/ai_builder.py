@@ -3,6 +3,11 @@ import os
 
 from django.template import Context, Engine
 
+from django_warden.skill_distribution import install_companion_skills
+
+KNOWN_AI_DIRECTORIES = [".gemini", ".claude", ".cursor", ".zed"]
+DEFAULT_AI_DIRECTORIES = [".gemini", ".claude"]
+
 
 def get_template_content(template_name: str) -> str:
     """
@@ -27,30 +32,29 @@ def _get_target_directories(base_dir: str, create_defaults_if_empty: bool = True
     Looks for standard AI folders (.gemini, .claude, .cursor, .zed) or any hidden
     folder containing a 'skills' subfolder or 'settings.json'.
     """
-    known_ai_dirs = [".gemini", ".claude", ".cursor", ".zed"]
-    targets = []
+    base_dir = str(base_dir)
+    detected = set()
 
-    for name in os.listdir(base_dir):
-        path = os.path.join(base_dir, name)
-        if not os.path.isdir(path) or not name.startswith("."):
-            continue
+    for directory_name in KNOWN_AI_DIRECTORIES:
+        if os.path.isdir(os.path.join(base_dir, directory_name)):
+            detected.add(directory_name)
 
-        if name in known_ai_dirs:
-            targets.append(path)
-            continue
+    try:
+        if os.path.exists(base_dir):
+            for entry in os.listdir(base_dir):
+                entry_path = os.path.join(base_dir, entry)
+                if os.path.isdir(entry_path) and entry.startswith("."):
+                    skills_path = os.path.join(entry_path, "skills")
+                    settings_file = os.path.join(entry_path, "settings.json")
+                    if os.path.isdir(skills_path) or os.path.isfile(settings_file):
+                        detected.add(entry)
+    except OSError:
+        pass
 
-        skills_dir = os.path.join(path, "skills")
-        settings_file = os.path.join(path, "settings.json")
-        if os.path.isdir(skills_dir) or os.path.isfile(settings_file):
-            targets.append(path)
+    if not detected and create_defaults_if_empty:
+        detected.update(DEFAULT_AI_DIRECTORIES)
 
-    if not targets and create_defaults_if_empty:
-        targets = [
-            os.path.join(base_dir, ".gemini"),
-            os.path.join(base_dir, ".claude"),
-        ]
-
-    return sorted(targets)
+    return sorted(detected)
 
 
 def _write_skill_file(target_path: str, skill_content: str) -> bool:
@@ -86,7 +90,7 @@ def _merge_existing_settings(existing_data: dict, new_data: dict, is_zed: bool =
         for server_name, server_cfg in raw_incoming.items():
             if isinstance(server_cfg, dict):
                 zed_cfg = dict(server_cfg)
-                if "command" in zed_cfg and zed_cfg["command"] == "django-ai-boost":
+                if zed_cfg.get("command") == "django-ai-boost":
                     zed_cfg["command"] = "uv"
                     zed_cfg["args"] = ["run", "django-ai-boost"] + zed_cfg.get("args", [])
                 incoming_servers[server_name] = zed_cfg
@@ -117,15 +121,17 @@ def _merge_or_create_settings(target_path: str, settings_content: str) -> bool:
     is_zed = _is_zed_directory(target_path)
 
     try:
-        new_data = json.loads(settings_content)
-    except json.JSONDecodeError:
+        new_data = json.loads(settings_content) if isinstance(settings_content, str) else settings_content
+        if not isinstance(new_data, dict):
+            new_data = {}
+    except (json.JSONDecodeError, TypeError):
         new_data = {}
 
     if not os.path.exists(settings_file):
         final_data = _merge_existing_settings({}, new_data, is_zed=is_zed)
         with open(settings_file, "w", encoding="utf-8") as f:
             json.dump(final_data, f, indent=2)
-            f.write(chr(10))
+            f.write("\n")
         return True
 
     try:
@@ -140,7 +146,7 @@ def _merge_or_create_settings(target_path: str, settings_content: str) -> bool:
 
     with open(settings_file, "w", encoding="utf-8") as f:
         json.dump(merged_data, f, indent=2)
-        f.write(chr(10))
+        f.write("\n")
 
     return False
 
@@ -148,7 +154,7 @@ def _merge_or_create_settings(target_path: str, settings_content: str) -> bool:
 def ensure_ai_structure(base_dir: str, context_data: dict) -> tuple[list[str], bool, bool]:
     """
     Discovers AI assistant directories and ensures they have the latest
-    SKILL.md and settings.json configurations.
+    SKILL.md, companion skills, and settings.json configurations.
     """
     skill_tpl = get_template_content("SKILL.md.tpl")
     settings_tpl = get_template_content("settings.json.tpl")
@@ -163,12 +169,15 @@ def ensure_ai_structure(base_dir: str, context_data: dict) -> tuple[list[str], b
     settings_created_any = False
 
     for target in targets:
-        skill_created = _write_skill_file(target, rendered_skill)
+        target_path = os.path.join(base_dir, target)
+        skill_created = _write_skill_file(target_path, rendered_skill)
         if skill_created:
             skill_created_any = True
 
-        settings_created = _merge_or_create_settings(target, rendered_settings)
+        settings_created = _merge_or_create_settings(target_path, rendered_settings)
         if settings_created:
             settings_created_any = True
+
+    skill_created_any |= install_companion_skills(base_dir, targets)
 
     return targets, skill_created_any, settings_created_any
