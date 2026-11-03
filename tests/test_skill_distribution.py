@@ -13,6 +13,7 @@ from django_warden.skill_distribution import MANIFEST_NAME, SKILL_SOURCE, _write
 SKILLS = {
     "alpinejs-django",
     "django-backend",
+    "django-dependency-audit",
     "django-htmx",
     "django-templates",
     "django-testing",

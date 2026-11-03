@@ -218,5 +218,7 @@ tmp/
 .codebase-memory
 ats/prompts/*.out
 
-# Gemini CLI local configuration
+# AI tooling local configuration
 .gemini/
+.claude/
+.cursor/
